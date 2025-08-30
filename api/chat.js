@@ -1,4 +1,4 @@
-// api/chat.js
+// /api/chat.js
 export default async function handler(req, res) {
   const allowedOrigin = "https://devilsdick.myshopify.com";
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
@@ -11,12 +11,15 @@ export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
       const { message } = req.body;
-      if (!message || message.trim() === "") return res.status(400).json({ error: "Message is required" });
-      if (!process.env.OPENAI_API_KEY) return res.status(500).json({ error: "OpenAI API key missing!" });
+      if (!message || message.trim() === "")
+        return res.status(400).json({ error: "Message is required" });
+
+      if (!process.env.OPENAI_API_KEY)
+        return res.status(500).json({ error: "OpenAI API key missing!" });
 
       const safeClean = (text) => (text ? text.replace(/<[^>]*>?/gm, "").trim() : "");
 
-      // --- Fetch products ---
+      // --- Fetch Shopify Products ---
       let productSummary = "No products available.";
       try {
         const productsRes = await fetch(
@@ -40,7 +43,6 @@ export default async function handler(req, res) {
                 description: safeClean(p.body_html),
               }))
             : [];
-
           if (products.length) {
             productSummary = products
               .map((p, i) => `(${i + 1}) ${p.title}: ${p.description}`)
@@ -51,7 +53,7 @@ export default async function handler(req, res) {
         console.error("❌ Shopify products fetch error:", e);
       }
 
-      // --- Fetch policies ---
+      // --- Fetch Shopify Policies ---
       let policySummary = "No store policies available.";
       try {
         const policiesRes = await fetch(
@@ -82,12 +84,12 @@ export default async function handler(req, res) {
       console.log("✅ Product summary:", productSummary);
       console.log("✅ Policy summary:", policySummary);
 
-      // --- Send to OpenAI ---
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      // --- Call OpenAI ---
+      const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json", 
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` 
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -110,7 +112,7 @@ If unsure, say "Let me connect you with support."`,
         }),
       });
 
-      const data = await response.json();
+      const data = await openaiRes.json();
       const reply = data.choices?.[0]?.message?.content || "Sorry, I don’t have an answer right now.";
       return res.status(200).json({ reply });
 
