@@ -1,24 +1,37 @@
 // api/chat.js
 export default async function handler(req, res) {
-  const allowedOrigin = "https://devilsdick.myshopify.com"; // your store
+  const allowedOrigin = "https://devilsdick.myshopify.com";
+
+  // --- Set CORS headers on every response ---
   res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method === "GET") return res.status(200).json({ status: "Chat proxy running ✅" });
+  // --- Handle OPTIONS preflight ---
+  if (req.method === "OPTIONS") {
+    return res.status(200).end();
+  }
 
+  // --- Health check ---
+  if (req.method === "GET") {
+    return res.status(200).json({ status: "Chat proxy running ✅" });
+  }
+
+  // --- POST: chat message ---
   if (req.method === "POST") {
     try {
       const { message } = req.body;
       if (!message || message.trim() === "")
         return res.status(400).json({ error: "Message is required" });
+
       if (!process.env.OPENAI_API_KEY)
         return res.status(500).json({ error: "OpenAI API key missing!" });
+
       if (!process.env.SHOPIFY_ADMIN_API_TOKEN || !process.env.SHOPIFY_STORE_DOMAIN)
         return res.status(500).json({ error: "Shopify Admin API credentials missing!" });
 
-      const safeClean = (text) => (text ? text.replace(/<[^>]*>?/gm, "").replace(/\n+/g, " ").trim() : "");
+      const safeClean = (text) =>
+        text ? text.replace(/<[^>]*>?/gm, "").replace(/\n+/g, " ").trim() : "";
 
       // --- Fetch Shopify products ---
       let productSummary = "No products available.";
@@ -32,13 +45,9 @@ export default async function handler(req, res) {
             },
           }
         );
-        console.log("Shopify products response status:", productsRes.status);
 
         const productsData = await productsRes.json();
-        console.log("Shopify raw data:", JSON.stringify(productsData, null, 2));
-
         const products = Array.isArray(productsData?.products) ? productsData.products : [];
-        console.log("Parsed products count:", products.length);
 
         if (products.length) {
           productSummary = products
@@ -61,16 +70,20 @@ export default async function handler(req, res) {
             },
           }
         );
+
         const policiesData = await policiesRes.json();
         const policies = Array.isArray(policiesData?.policies) ? policiesData.policies : [];
+
         if (policies.length) {
-          policySummary = policies.map((p) => `- ${p.title}: ${safeClean(p.body)}`).join("\n");
+          policySummary = policies
+            .map((p) => `- ${p.title}: ${safeClean(p.body)}`)
+            .join("\n");
         }
       } catch (e) {
         console.error("❌ Shopify policies fetch failed:", e);
       }
 
-      // --- System prompt for Planty ---
+      // --- System prompt for OpenAI ---
       const systemMessage = `
 You are Planty, a friendly Shopify AI assistant.
 Always answer customer questions using ONLY the following product and policy data.
@@ -84,18 +97,18 @@ Policies:
 ${policySummary}
 `;
 
-      // --- Send to OpenAI ---
+      // --- Send request to OpenAI ---
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
-        headers: { 
-          "Content-Type": "application/json", 
-          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` 
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
           messages: [
             { role: "system", content: systemMessage },
-            { role: "user", content: message }
+            { role: "user", content: message },
           ],
         }),
       });
@@ -104,7 +117,6 @@ ${policySummary}
       const reply = data.choices?.[0]?.message?.content || "Sorry, I don’t have an answer right now.";
 
       return res.status(200).json({ reply });
-
     } catch (err) {
       console.error("❌ Proxy error:", err);
       return res.status(200).json({ reply: "Sorry, I don’t have an answer right now." });
