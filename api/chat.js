@@ -16,44 +16,79 @@ export default async function handler(req, res) {
 
       const safeClean = (text) => (text ? text.replace(/<[^>]*>?/gm, "").trim() : "");
 
-      // --- Fetch products safely ---
+      // --- Fetch products ---
       let productSummary = "No products available.";
       try {
         const productsRes = await fetch(
           `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-07/products.json?limit=5`,
-          { headers: { "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN, "Content-Type": "application/json" } }
+          {
+            headers: {
+              "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
+              "Content-Type": "application/json",
+            },
+          }
         );
-        const productsData = await productsRes.json();
-        const products = Array.isArray(productsData.products)
-          ? productsData.products.map((p) => ({
-              title: p.title || "Untitled product",
-              description: safeClean(p.body_html),
-            }))
-          : [];
-        if (products.length) productSummary = products.map((p, i) => `(${i+1}) ${p.title}: ${p.description}`).join("\n");
+
+        if (!productsRes.ok) {
+          const text = await productsRes.text();
+          console.error("❌ Shopify products fetch failed:", productsRes.status, text);
+        } else {
+          const productsData = await productsRes.json();
+          const products = Array.isArray(productsData.products)
+            ? productsData.products.map((p) => ({
+                title: p.title || "Untitled product",
+                description: safeClean(p.body_html),
+              }))
+            : [];
+
+          if (products.length) {
+            productSummary = products
+              .map((p, i) => `(${i + 1}) ${p.title}: ${p.description}`)
+              .join("\n");
+          }
+        }
       } catch (e) {
-        console.error("❌ Shopify products fetch failed:", e);
+        console.error("❌ Shopify products fetch error:", e);
       }
 
-      // --- Fetch policies safely ---
+      // --- Fetch policies ---
       let policySummary = "No store policies available.";
       try {
         const policiesRes = await fetch(
           `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-07/policies.json`,
-          { headers: { "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN, "Content-Type": "application/json" } }
+          {
+            headers: {
+              "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
+              "Content-Type": "application/json",
+            },
+          }
         );
-        const policiesData = await policiesRes.json();
-        if (Array.isArray(policiesData.policies) && policiesData.policies.length > 0) {
-          policySummary = policiesData.policies.map((p) => `${p.title}: ${safeClean(p.body)}`).join("\n");
+
+        if (!policiesRes.ok) {
+          const text = await policiesRes.text();
+          console.error("❌ Shopify policies fetch failed:", policiesRes.status, text);
+        } else {
+          const policiesData = await policiesRes.json();
+          if (Array.isArray(policiesData.policies) && policiesData.policies.length > 0) {
+            policySummary = policiesData.policies
+              .map((p) => `${p.title}: ${safeClean(p.body)}`)
+              .join("\n");
+          }
         }
       } catch (e) {
-        console.error("❌ Shopify policies fetch failed:", e);
+        console.error("❌ Shopify policies fetch error:", e);
       }
+
+      console.log("✅ Product summary:", productSummary);
+      console.log("✅ Policy summary:", policySummary);
 
       // --- Send to OpenAI ---
       const response = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` },
+        headers: { 
+          "Content-Type": "application/json", 
+          "Authorization": `Bearer ${process.env.OPENAI_API_KEY}` 
+        },
         body: JSON.stringify({
           model: "gpt-4o-mini",
           messages: [
@@ -81,7 +116,6 @@ If unsure, say "Let me connect you with support."`,
 
     } catch (err) {
       console.error("❌ Proxy error:", err);
-      // Always return a default message to frontend
       return res.status(200).json({ reply: "Sorry, I don’t have an answer right now." });
     }
   }
