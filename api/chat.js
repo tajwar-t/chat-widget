@@ -19,15 +19,23 @@ export default async function handler(req, res) {
         // --- Fetch products ---
         let productSummary = "";
         try {
-          const productsRes = await fetch(
-            `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-07/products.json?limit=10`,
-            {
-              headers: {
-                "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
-                "Content-Type": "application/json",
-              },
-            }
-          );
+            const productsRes = await fetch(
+                `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-07/products.json?limit=5`,
+                {
+                  headers: {
+                    "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
+                    "Content-Type": "application/json",
+                  },
+                }
+              );
+
+              console.log("Shopify response status:", productsRes.status);
+
+        const productsData = await productsRes.json();
+        console.log("Shopify raw data:", JSON.stringify(productsData, null, 2));
+
+        const products = Array.isArray(productsData.products) ? productsData.products : [];
+console.log("Parsed products:", products.length);
           const productsData = await productsRes.json();
           const products = Array.isArray(productsData.products) ? productsData.products : [];
           if (products.length) {
