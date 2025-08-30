@@ -1,5 +1,7 @@
+// api/chat.js
 export default async function handler(req, res) {
-    const allowedOrigin = "https://devilsdick.myshopify.com"; // Replace with your store URL
+    // --- CORS ---
+    const allowedOrigin = "https://devilsdick.myshopify.com"; // your store
     res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -8,10 +10,12 @@ export default async function handler(req, res) {
       return res.status(200).end();
     }
   
+    // --- Health check ---
     if (req.method === "GET") {
       return res.status(200).json({ status: "Chat proxy running ✅" });
     }
   
+    // --- Chat handler ---
     if (req.method === "POST") {
       try {
         const { message } = req.body;
@@ -23,60 +27,53 @@ export default async function handler(req, res) {
         if (!process.env.OPENAI_API_KEY) {
           return res.status(500).json({ error: "OpenAI API key missing!" });
         }
+        if (!process.env.SHOPIFY_ADMIN_API_TOKEN || !process.env.SHOPIFY_STORE_DOMAIN) {
+          return res.status(500).json({ error: "Shopify Admin API credentials missing!" });
+        }
   
-        // 🔹 Fetch Shopify products
+        // --- Helper: safe text cleanup ---
+        const safeClean = (text) => {
+          if (!text) return "";
+          return text.replace(/<[^>]*>?/gm, "").trim();
+        };
+  
+        // --- Fetch products from Shopify ---
         const productsRes = await fetch(
           `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-07/products.json?limit=5`,
           {
             headers: {
-              "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_TOKEN,
+              "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_API_TOKEN,
               "Content-Type": "application/json",
             },
           }
         );
+  
         const productsData = await productsRes.json();
-        const productSummary = productsData.products
-          .map((p) => `${p.title}: ${p.body_html.replace(/<[^>]+>/g, "")}`)
+        const products = productsData.products?.map((p) => ({
+          title: p.title || "Untitled product",
+          description: safeClean(p.body_html),
+        })) || [];
+  
+        // Build context string for AI
+        const productContext = products
+          .map((p, i) => `(${i + 1}) ${p.title}: ${p.description}`)
           .join("\n");
   
-        // 🔹 Fetch Shopify store policies
-        const policyRes = await fetch(
-          `https://${process.env.SHOPIFY_STORE_DOMAIN}/admin/api/2024-07/policies.json`,
-          {
-            headers: {
-              "X-Shopify-Access-Token": process.env.SHOPIFY_ADMIN_TOKEN,
-              "Content-Type": "application/json",
-            },
-          }
-        );
-        const policiesData = await policyRes.json();
-        const policySummary = policiesData.policies
-          ?.map((p) => `${p.title}: ${p.body}`)
-          .join("\n") || "No policies available.";
-  
-        // 🔹 Send request to OpenAI
+        // --- OpenAI Chat ---
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+            "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`,
           },
           body: JSON.stringify({
             model: "gpt-4o-mini",
             messages: [
               {
                 role: "system",
-                content: `
-  You are Planty, a friendly AI assistant for the Shopify store "Devil's Dick".
-  Answer only about this store, its products, and policies.
-  If unsure, say "Let me connect you with support."
-  
-  🔹 Store Products:
-  ${productSummary}
-  
-  🔹 Store Policies:
-  ${policySummary}
-  `,
+                content: `You are Planty, a helpful AI assistant for a Shopify store. 
+                You can answer questions about store policies, products, and general help.
+                Here are some of the latest products:\n\n${productContext}`,
               },
               { role: "user", content: message },
             ],
@@ -84,16 +81,17 @@ export default async function handler(req, res) {
         });
   
         const data = await response.json();
-        const reply =
-          data.choices?.[0]?.message?.content || "Sorry, I don’t know that one.";
   
+        const reply = data.choices?.[0]?.message?.content || "Sorry, I don’t know.";
         return res.status(200).json({ reply });
+  
       } catch (err) {
         console.error("Proxy error:", err);
         return res.status(500).json({ error: err.message });
       }
     }
   
+    // --- Method not allowed ---
     return res.status(405).json({ error: "Method not allowed" });
   }
   
